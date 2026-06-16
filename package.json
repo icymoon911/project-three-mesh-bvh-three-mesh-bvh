@@ -17,13 +17,13 @@
   "types": "src/index.d.ts",
   "sideEffects": false,
   "scripts": {
-    "start": "concurrently \"rollup -w -c rollup-templating.config.js\" \"vite --config ./vite.config.js\"",
-    "build": "rollup -c rollup-templating.config.js && rollup -c",
-    "build-silent": "rollup -c rollup-templating.config.js --silent && rollup -c --silent",
+    "start": "vite --config ./vite.config.js",
+    "build": "rollup -c",
+    "build-silent": "rollup -c --silent",
     "build-examples": "npm run build && vite build --config ./vite.config.js && cp ./example/coi-serviceworker.js ./example/bundle/",
-    "test": "npm run build-silent && vitest run",
+    "test": "vitest run",
     "lint": "eslint . && tsc --noEmit",
-    "benchmark": "npm run build-silent && node benchmark/run-benchmark.js",
+    "benchmark": "node benchmark/run-benchmark.js",
     "prepublishOnly": "npm run build",
     "docs:build": "node utils/docs/build.js"
   },

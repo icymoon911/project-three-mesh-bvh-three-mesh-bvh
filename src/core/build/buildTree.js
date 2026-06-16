@@ -6,111 +6,132 @@ import { BYTES_PER_NODE } from '../Constants.js';
 import { partition } from './sortUtils.js';
 import { countNodes, populateBuffer } from './buildUtils.js';
 
-export function buildTree( bvh, primitiveBounds, offset, count, options, loadRange ) {
+// Standalone splitNode function that can be independently imported and unit-tested.
+// Takes a context object containing all required build parameters instead of relying
+// on closure captures from buildTree.
+export function splitNode( node, offset, count, context, centroidBoundingData = null, depth = 0 ) {
 
-	// expand variables
 	const {
 		maxDepth,
 		verbose,
 		maxLeafSize,
 		strategy,
+		primitiveBuffer,
+		primitiveBufferStride,
+		primitiveBounds,
 		onProgress,
-	} = options;
+		loadRange,
+		reachedMaxDepthState,
+	} = context;
 
-	const partitionBuffer = bvh.primitiveBuffer;
-	const partitionStride = bvh.primitiveBufferStride;
+	if ( ! reachedMaxDepthState.value && depth >= maxDepth ) {
 
-	// generate intermediate variables
-	const cacheCentroidBoundingData = new Float32Array( 6 );
-	let reachedMaxDepth = false;
+		reachedMaxDepthState.value = true;
+		if ( verbose ) {
 
-	const root = new BVHNode();
-	getBounds( primitiveBounds, offset, count, root.boundingData, cacheCentroidBoundingData );
-	splitNode( root, offset, count, cacheCentroidBoundingData );
-	return root;
+			console.warn( `BVH: Max depth of ${ maxDepth } reached when generating BVH. Consider increasing maxDepth.` );
 
-	function triggerProgress( primitivesProcessed ) {
+		}
+
+	}
+
+	// early out if we've met our capacity
+	if ( count <= maxLeafSize || depth >= maxDepth ) {
 
 		if ( onProgress ) {
 
-			onProgress( ( primitivesProcessed - loadRange.offset ) / loadRange.count );
+			onProgress( ( offset + count - loadRange.offset ) / loadRange.count );
 
 		}
 
-	}
-
-	// either recursively splits the given node, creating left and right subtrees for it, or makes it a leaf node,
-	// recording the offset and count of its primitives and writing them into the reordered geometry index.
-	function splitNode( node, offset, count, centroidBoundingData = null, depth = 0 ) {
-
-		if ( ! reachedMaxDepth && depth >= maxDepth ) {
-
-			reachedMaxDepth = true;
-			if ( verbose ) {
-
-				console.warn( `BVH: Max depth of ${ maxDepth } reached when generating BVH. Consider increasing maxDepth.` );
-
-			}
-
-		}
-
-		// early out if we've met our capacity
-		if ( count <= maxLeafSize || depth >= maxDepth ) {
-
-			triggerProgress( offset + count );
-			node.offset = offset;
-			node.count = count;
-			return node;
-
-		}
-
-		// Find where to split the volume
-		const split = getOptimalSplit( node.boundingData, centroidBoundingData, primitiveBounds, offset, count, strategy );
-		if ( split.axis === - 1 ) {
-
-			triggerProgress( offset + count );
-			node.offset = offset;
-			node.count = count;
-			return node;
-
-		}
-
-		const splitOffset = partition( partitionBuffer, partitionStride, primitiveBounds, offset, count, split );
-
-		// create the two new child nodes
-		if ( splitOffset === offset || splitOffset === offset + count ) {
-
-			triggerProgress( offset + count );
-			node.offset = offset;
-			node.count = count;
-
-		} else {
-
-			node.splitAxis = split.axis;
-
-			// create the left child and compute its bounding box
-			const left = new BVHNode();
-			const lstart = offset;
-			const lcount = splitOffset - offset;
-			node.left = left;
-
-			getBounds( primitiveBounds, lstart, lcount, left.boundingData, cacheCentroidBoundingData );
-			splitNode( left, lstart, lcount, cacheCentroidBoundingData, depth + 1 );
-
-			// repeat for right
-			const right = new BVHNode();
-			const rstart = splitOffset;
-			const rcount = count - lcount;
-			node.right = right;
-
-			getBounds( primitiveBounds, rstart, rcount, right.boundingData, cacheCentroidBoundingData );
-			splitNode( right, rstart, rcount, cacheCentroidBoundingData, depth + 1 );
-
-		}
-
+		node.offset = offset;
+		node.count = count;
 		return node;
 
 	}
+
+	// Find where to split the volume
+	const split = getOptimalSplit( node.boundingData, centroidBoundingData, primitiveBounds, offset, count, strategy );
+	if ( split.axis === - 1 ) {
+
+		if ( onProgress ) {
+
+			onProgress( ( offset + count - loadRange.offset ) / loadRange.count );
+
+		}
+
+		node.offset = offset;
+		node.count = count;
+		return node;
+
+	}
+
+	const splitOffset = partition( primitiveBuffer, primitiveBufferStride, primitiveBounds, offset, count, split );
+
+	// create the two new child nodes
+	if ( splitOffset === offset || splitOffset === offset + count ) {
+
+		if ( onProgress ) {
+
+			onProgress( ( offset + count - loadRange.offset ) / loadRange.count );
+
+		}
+
+		node.offset = offset;
+		node.count = count;
+
+	} else {
+
+		node.splitAxis = split.axis;
+
+		// create the left child and compute its bounding box
+		const left = new BVHNode();
+		const lstart = offset;
+		const lcount = splitOffset - offset;
+		node.left = left;
+
+		getBounds( primitiveBounds, lstart, lcount, left.boundingData, context.cacheCentroidBoundingData );
+		splitNode( left, lstart, lcount, context, context.cacheCentroidBoundingData, depth + 1 );
+
+		// repeat for right
+		const right = new BVHNode();
+		const rstart = splitOffset;
+		const rcount = count - lcount;
+		node.right = right;
+
+		getBounds( primitiveBounds, rstart, rcount, right.boundingData, context.cacheCentroidBoundingData );
+		splitNode( right, rstart, rcount, context, context.cacheCentroidBoundingData, depth + 1 );
+
+	}
+
+	return node;
+
+}
+
+export function buildTree( bvh, primitiveBounds, offset, count, options, loadRange ) {
+
+	// generate intermediate variables
+	const cacheCentroidBoundingData = new Float32Array( 6 );
+	const reachedMaxDepthState = { value: false };
+
+	const context = {
+		maxDepth: options.maxDepth,
+		verbose: options.verbose,
+		maxLeafSize: options.maxLeafSize,
+		strategy: options.strategy,
+		onProgress: options.onProgress,
+		primitiveBuffer: bvh.primitiveBuffer,
+		primitiveBufferStride: bvh.primitiveBufferStride,
+		primitiveBounds,
+		loadRange,
+		cacheCentroidBoundingData,
+		reachedMaxDepthState,
+	};
+
+	const root = new BVHNode();
+	getBounds( primitiveBounds, offset, count, root.boundingData, cacheCentroidBoundingData );
+	splitNode( root, offset, count, context, cacheCentroidBoundingData );
+	return root;
 
 }
 

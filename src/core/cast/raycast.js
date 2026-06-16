@@ -1,10 +1,9 @@
 import { intersectsNodeBounds } from '../utils/intersectUtils.js';
 import { COUNT, OFFSET, LEFT_NODE, RIGHT_NODE, IS_LEAF } from '../utils/nodeBufferUtils.js';
 import { BufferStack } from '../utils/BufferStack.js';
-import { intersectTris } from '../utils/iterationUtils.generated.js';
-import { intersectTris_indirect } from '../utils/iterationUtils_indirect.generated.js';
+import { intersectTris } from '../utils/iterationUtils.js';
 
-export function raycast/* @echo INDIRECT_STRING */( bvh, root, materialOrSide, ray, intersects, near, far ) {
+export function raycast( bvh, root, materialOrSide, ray, intersects, near, far ) {
 
 	BufferStack.setBuffer( bvh._roots[ root ] );
 	_raycast( 0, bvh, materialOrSide, ray, intersects, near, far );
@@ -21,16 +20,7 @@ function _raycast( nodeIndex32, bvh, materialOrSide, ray, intersects, near, far 
 
 		const offset = OFFSET( nodeIndex32, uint32Array );
 		const count = COUNT( nodeIndex16, uint16Array );
-
-		/* @if INDIRECT */
-
-		intersectTris_indirect( bvh, materialOrSide, ray, offset, count, intersects, near, far );
-
-		/* @else */
-
 		intersectTris( bvh, materialOrSide, ray, offset, count, intersects, near, far );
-
-		/* @endif */
 
 	} else {
 

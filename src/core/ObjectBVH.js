@@ -104,17 +104,19 @@ export class ObjectBVH extends BVH {
 		this.primitiveBuffer = new Uint32Array( this._countPrimitives( objects ) );
 		this._fillPrimitiveBuffer( objects, idBits, this.primitiveBuffer );
 
+		// Pre-compute inverse matrix once for use in writePrimitiveBounds
+		// This avoids recalculating it for every primitive during tree construction
+		this._inverseMatrix = new Matrix4().copy( this.matrixWorld ).invert();
+
 		super.init( options );
 
 	}
 
 	writePrimitiveBounds( i, targetBuffer, writeOffset ) {
 
-		// TODO: it would be best to cache this matrix inversion
-		const { primitiveBuffer } = this;
-		_inverseMatrix.copy( this.matrixWorld ).invert();
+		const { primitiveBuffer, _inverseMatrix: inverseMatrix } = this;
 
-		this._getPrimitiveBoundingBox( primitiveBuffer[ i ], _inverseMatrix, _box );
+		this._getPrimitiveBoundingBox( primitiveBuffer[ i ], inverseMatrix, _box );
 		const { min, max } = _box;
 
 		targetBuffer[ writeOffset + 0 ] = min.x;

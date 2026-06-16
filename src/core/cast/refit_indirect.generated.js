@@ -1,7 +1,11 @@
-import { BYTES_PER_NODE, UINT32_PER_NODE } from '../Constants.js';
-import { COUNT, IS_LEAF, LEFT_NODE, OFFSET, RIGHT_NODE } from '../utils/nodeBufferUtils.js';
+import { UINT32_PER_NODE, BYTES_PER_NODE } from '../Constants.js';
+import { IS_LEAF, OFFSET, COUNT, LEFT_NODE, RIGHT_NODE } from '../utils/nodeBufferUtils.js';
 
-export function refit/* @echo INDIRECT_STRING */( bvh, nodeIndices = null ) {
+/****************************************************/
+/* This file is generated from "refit.template.js". */
+/****************************************************/
+
+function refit_indirect( bvh, nodeIndices = null ) {
 
 	if ( nodeIndices && Array.isArray( nodeIndices ) ) {
 
@@ -83,8 +87,6 @@ export function refit/* @echo INDIRECT_STRING */( bvh, nodeIndices = null ) {
 			let maxy = - Infinity;
 			let maxz = - Infinity;
 
-			/* @if INDIRECT */
-
 			for ( let i = offset, l = offset + count; i < l; i ++ ) {
 
 				const triIndex = bvh.resolveTriangleIndex( i );
@@ -120,38 +122,6 @@ export function refit/* @echo INDIRECT_STRING */( bvh, nodeIndices = null ) {
 
 			}
 
-			/* @else */
-
-			for ( let triIndex = offset, l = offset + count; triIndex < l; triIndex ++ ) {
-
-				// Fix #3: skip triangles outside the current drawRange / group ranges
-				if ( needsRangeCheck && ! _isTriangleValid( triIndex ) ) {
-
-					continue;
-
-				}
-
-				for ( let j = 0; j < 3; j ++ ) {
-
-					let index = indexArr[ 3 * triIndex + j ];
-					const x = posAttr.getX( index );
-					const y = posAttr.getY( index );
-					const z = posAttr.getZ( index );
-
-					if ( x < minx ) minx = x;
-					if ( x > maxx ) maxx = x;
-
-					if ( y < miny ) miny = y;
-					if ( y > maxy ) maxy = y;
-
-					if ( z < minz ) minz = z;
-					if ( z > maxz ) maxz = z;
-
-				}
-
-			}
-
-			/* @endif */
 
 			if (
 				float32Array[ nodeIndex32 + 0 ] !== minx ||
@@ -272,3 +242,5 @@ export function refit/* @echo INDIRECT_STRING */( bvh, nodeIndices = null ) {
 	}
 
 }
+
+export { refit_indirect };

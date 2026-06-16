@@ -69,6 +69,24 @@ export class ObjectBVH extends BVH {
 		this.includeInstances = options.includeInstances;
 		this.matrixWorld = options.matrixWorld;
 
+		// Fix #4: ensure every collected object's geometry has a boundingBox computed
+		// when using the fast (non-precise) path so that _getPrimitiveBoundingBox never
+		// operates on a null boundingBox.
+		if ( ! options.precise ) {
+
+			for ( let i = 0, l = objects.length; i < l; i ++ ) {
+
+				const obj = objects[ i ];
+				if ( obj.geometry && ! obj.geometry.boundingBox ) {
+
+					obj.geometry.computeBoundingBox();
+
+				}
+
+			}
+
+		}
+
 		this.init( options );
 
 	}
@@ -104,25 +122,57 @@ export class ObjectBVH extends BVH {
 		this.primitiveBuffer = new Uint32Array( this._countPrimitives( objects ) );
 		this._fillPrimitiveBuffer( objects, idBits, this.primitiveBuffer );
 
+		// Fix #2: pre-compute the inverse matrix once before the build loop instead of
+		// recalculating it in writePrimitiveBounds for every primitive. If the matrixWorld
+		// is singular (e.g. contains zero scale), fall back to the identity matrix so that
+		// NaN/Infinity values never pollute the BVH node bounds.
+		const cachedInverse = new Matrix4().copy( this.matrixWorld ).invert();
+		if ( isMatrixValid( cachedInverse ) ) {
+
+			this._cachedInverseMatrix = cachedInverse;
+
+		} else {
+
+			this._cachedInverseMatrix = new Matrix4();
+
+		}
+
 		super.init( options );
 
 	}
 
 	writePrimitiveBounds( i, targetBuffer, writeOffset ) {
 
-		// TODO: it would be best to cache this matrix inversion
-		const { primitiveBuffer } = this;
-		_inverseMatrix.copy( this.matrixWorld ).invert();
+		// Fix #2: use the pre-computed inverse matrix instead of recalculating per primitive.
+		// Also guard against NaN/Infinity leaking into the BVH tree by clamping to a safe
+		// fallback box when the primitive bounds are invalid.
+		const { primitiveBuffer, _cachedInverseMatrix } = this;
 
-		this._getPrimitiveBoundingBox( primitiveBuffer[ i ], _inverseMatrix, _box );
+		this._getPrimitiveBoundingBox( primitiveBuffer[ i ], _cachedInverseMatrix, _box );
 		const { min, max } = _box;
 
-		targetBuffer[ writeOffset + 0 ] = min.x;
-		targetBuffer[ writeOffset + 1 ] = min.y;
-		targetBuffer[ writeOffset + 2 ] = min.z;
-		targetBuffer[ writeOffset + 3 ] = max.x;
-		targetBuffer[ writeOffset + 4 ] = max.y;
-		targetBuffer[ writeOffset + 5 ] = max.z;
+		// If the computed bounds contain NaN or Infinity (e.g. from a degenerate object),
+		// fall back to an empty box at the origin rather than polluting the tree.
+		if ( ! isFinite( min.x ) || ! isFinite( min.y ) || ! isFinite( min.z ) ||
+			 ! isFinite( max.x ) || ! isFinite( max.y ) || ! isFinite( max.z ) ) {
+
+			targetBuffer[ writeOffset + 0 ] = 0;
+			targetBuffer[ writeOffset + 1 ] = 0;
+			targetBuffer[ writeOffset + 2 ] = 0;
+			targetBuffer[ writeOffset + 3 ] = 0;
+			targetBuffer[ writeOffset + 4 ] = 0;
+			targetBuffer[ writeOffset + 5 ] = 0;
+
+		} else {
+
+			targetBuffer[ writeOffset + 0 ] = min.x;
+			targetBuffer[ writeOffset + 1 ] = min.y;
+			targetBuffer[ writeOffset + 2 ] = min.z;
+			targetBuffer[ writeOffset + 3 ] = max.x;
+			targetBuffer[ writeOffset + 4 ] = max.y;
+			targetBuffer[ writeOffset + 5 ] = max.z;
+
+		}
 
 	}
 
@@ -201,6 +251,16 @@ export class ObjectBVH extends BVH {
 
 				// skip non visible objects
 				if ( ! object.visible ) {
+
+					return;
+
+				}
+
+				// Fix #1: skip objects whose layers do not match the raycaster's layers.
+				// three.js's standard Mesh.raycast performs this check as its first step,
+				// so we must do the same here to avoid returning hits for objects the
+				// raycaster should not see.
+				if ( ! object.layers.test( raycaster.layers ) ) {
 
 					return;
 
@@ -654,5 +714,25 @@ function shrinkToSphere( box, sphere ) {
 
 	_vec.copy( sphere.center ).addScalar( sphere.radius );
 	box.max.min( _vec );
+
+}
+
+// check whether a Matrix4 contains only finite values (no NaN or Infinity).
+// Used to detect singular-matrix results from invert() when the source
+// matrixWorld has zero scale or other degenerate values.
+function isMatrixValid( m ) {
+
+	const e = m.elements;
+	for ( let i = 0; i < 16; i ++ ) {
+
+		if ( ! isFinite( e[ i ] ) ) {
+
+			return false;
+
+		}
+
+	}
+
+	return true;
 
 }

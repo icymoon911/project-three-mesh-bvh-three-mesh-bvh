@@ -1,8 +1,12 @@
-import { Vector3, Matrix4 } from 'three';
+import { Matrix4, Vector3 } from 'three';
 import { OrientedBox } from '../../math/OrientedBox.js';
 import { setTriangle } from '../../utils/TriangleUtilities.js';
 import { getTriCount } from '../build/geometryUtils.js';
 import { ExtendedTrianglePool } from '../../utils/ExtendedTrianglePool.js';
+
+/*********************************************************************/
+/* This file is generated from "closestPointToGeometry.template.js". */
+/*********************************************************************/
 
 const tempMatrix = /* @__PURE__ */ new Matrix4();
 const obb = /* @__PURE__ */ new OrientedBox();
@@ -13,7 +17,7 @@ const temp3 = /* @__PURE__ */ new Vector3();
 const temp4 = /* @__PURE__ */ new Vector3();
 const temp5 = /* @__PURE__ */ new Vector3();
 
-export function closestPointToGeometry/* @echo INDIRECT_STRING */(
+function closestPointToGeometry_indirect(
 	bvh,
 	otherGeometry,
 	geometryToBvh,
@@ -112,16 +116,9 @@ export function closestPointToGeometry/* @echo INDIRECT_STRING */(
 
 							for ( let i2 = otherOffset, l2 = otherOffset + otherCount; i2 < l2; i2 ++ ) {
 
-								/* @if INDIRECT */
-
 								const ti2 = otherBvh.resolveTriangleIndex( i2 );
 								setTriangle( triangle2, 3 * ti2, otherIndex, otherPos );
 
-								/* @else */
-
-								setTriangle( triangle2, 3 * i2, otherIndex, otherPos );
-
-								/* @endif */
 								triangle2.a.applyMatrix4( geometryToBvh );
 								triangle2.b.applyMatrix4( geometryToBvh );
 								triangle2.c.applyMatrix4( geometryToBvh );
@@ -129,16 +126,9 @@ export function closestPointToGeometry/* @echo INDIRECT_STRING */(
 
 								for ( let i = offset, l = offset + count; i < l; i ++ ) {
 
-									/* @if INDIRECT */
-
 									const ti = bvh.resolveTriangleIndex( i );
 									setTriangle( triangle, 3 * ti, index, pos );
 
-									/* @else */
-
-									setTriangle( triangle, 3 * i, index, pos );
-
-									/* @endif */
 									triangle.needsUpdate = true;
 
 									const dist = triangle.distanceToTriangle( triangle2, tempTarget1, tempTarget2 );
@@ -186,16 +176,9 @@ export function closestPointToGeometry/* @echo INDIRECT_STRING */(
 
 						for ( let i = offset, l = offset + count; i < l; i ++ ) {
 
-							/* @if INDIRECT */
-
 							const ti = bvh.resolveTriangleIndex( i );
 							setTriangle( triangle, 3 * ti, index, pos );
 
-							/* @else */
-
-							setTriangle( triangle, 3 * i, index, pos );
-
-							/* @endif */
 							triangle.needsUpdate = true;
 
 							const dist = triangle.distanceToTriangle( triangle2, tempTarget1, tempTarget2 );
@@ -274,3 +257,5 @@ export function closestPointToGeometry/* @echo INDIRECT_STRING */(
 	return target1;
 
 }
+
+export { closestPointToGeometry_indirect };

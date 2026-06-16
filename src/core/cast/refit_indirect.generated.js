@@ -1,5 +1,9 @@
-import { BYTES_PER_NODE, UINT32_PER_NODE } from '../Constants.js';
-import { COUNT, IS_LEAF, LEFT_NODE, OFFSET, RIGHT_NODE } from '../utils/nodeBufferUtils.js';
+import { UINT32_PER_NODE, BYTES_PER_NODE } from '../Constants.js';
+import { IS_LEAF, OFFSET, COUNT, LEFT_NODE, RIGHT_NODE } from '../utils/nodeBufferUtils.js';
+
+/****************************************************/
+/* This file is generated from "refit.template.js". */
+/****************************************************/
 
 // Check whether the triangle starting at index-buffer position `triStart`
 // falls within the geometry's current drawRange and (if present) any group.
@@ -24,7 +28,7 @@ function isTriangleValid( triStart, drawStart, drawEnd, groups ) {
 
 }
 
-export function refit/* @echo INDIRECT_STRING */( bvh, nodeIndices = null ) {
+function refit_indirect( bvh, nodeIndices = null ) {
 
 	if ( nodeIndices && Array.isArray( nodeIndices ) ) {
 
@@ -73,8 +77,6 @@ export function refit/* @echo INDIRECT_STRING */( bvh, nodeIndices = null ) {
 			let maxy = - Infinity;
 			let maxz = - Infinity;
 
-			/* @if INDIRECT */
-
 			for ( let i = offset, l = offset + count; i < l; i ++ ) {
 
 				const t = 3 * bvh.resolveTriangleIndex( i );
@@ -105,36 +107,6 @@ export function refit/* @echo INDIRECT_STRING */( bvh, nodeIndices = null ) {
 
 			}
 
-			/* @else */
-
-			for ( let tri = offset, triEnd = offset + count; tri < triEnd; tri ++ ) {
-
-				const triStart = 3 * tri;
-
-				// Skip triangles outside the draw range or in group gaps
-				if ( ! isTriangleValid( triStart, drawStart, drawEnd, groups ) ) continue;
-
-				for ( let j = 0; j < 3; j ++ ) {
-
-					let index = indexArr[ triStart + j ];
-					const x = posAttr.getX( index );
-					const y = posAttr.getY( index );
-					const z = posAttr.getZ( index );
-
-					if ( x < minx ) minx = x;
-					if ( x > maxx ) maxx = x;
-
-					if ( y < miny ) miny = y;
-					if ( y > maxy ) maxy = y;
-
-					if ( z < minz ) minz = z;
-					if ( z > maxz ) maxz = z;
-
-				}
-
-			}
-
-			/* @endif */
 
 			if (
 				float32Array[ nodeIndex32 + 0 ] !== minx ||
@@ -237,3 +209,5 @@ export function refit/* @echo INDIRECT_STRING */( bvh, nodeIndices = null ) {
 	}
 
 }
+
+export { refit_indirect };

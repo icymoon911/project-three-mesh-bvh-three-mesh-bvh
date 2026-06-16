@@ -7,6 +7,7 @@ import { INTERSECTED, NOT_INTERSECTED } from './Constants.js';
 const _geometry = /* @__PURE__ */ new BufferGeometry();
 const _matrix = /* @__PURE__ */ new Matrix4();
 const _inverseMatrix = /* @__PURE__ */ new Matrix4();
+const _cachedInverseMatrix = /* @__PURE__ */ new Matrix4();
 const _box = /* @__PURE__ */ new Box3();
 const _sphere = /* @__PURE__ */ new Sphere();
 const _vec = /* @__PURE__ */ new Vector3();
@@ -100,9 +101,32 @@ export class ObjectBVH extends BVH {
 
 	init( options ) {
 
-		const { objects, idBits } = this;
+		const { objects, idBits, precise } = this;
 		this.primitiveBuffer = new Uint32Array( this._countPrimitives( objects ) );
 		this._fillPrimitiveBuffer( objects, idBits, this.primitiveBuffer );
+
+		// Pre-compute the inverse matrix once before the build loop to avoid
+		// recalculating it for every primitive in writePrimitiveBounds.
+		// Guard against singular matrixWorld (e.g., zero scale).
+		const det = this.matrixWorld.determinant();
+		this._inverseMatrixSingular = ! isFinite( det ) || Math.abs( det ) < 1e-10;
+		if ( this._inverseMatrixSingular ) {
+
+			_cachedInverseMatrix.identity();
+
+		} else {
+
+			_cachedInverseMatrix.copy( this.matrixWorld ).invert();
+
+		}
+
+		// In non-precise mode, ensure every collected object's geometry has a
+		// computed boundingBox so _getPrimitiveBoundingBox can read it safely.
+		if ( ! precise ) {
+
+			ensureBoundingBoxes( objects );
+
+		}
 
 		super.init( options );
 
@@ -110,12 +134,30 @@ export class ObjectBVH extends BVH {
 
 	writePrimitiveBounds( i, targetBuffer, writeOffset ) {
 
-		// TODO: it would be best to cache this matrix inversion
-		const { primitiveBuffer } = this;
-		_inverseMatrix.copy( this.matrixWorld ).invert();
+		// Use the pre-computed inverse matrix from init() instead of recalculating
+		// it for every primitive.
+		const { primitiveBuffer, _inverseMatrixSingular } = this;
 
-		this._getPrimitiveBoundingBox( primitiveBuffer[ i ], _inverseMatrix, _box );
+		this._getPrimitiveBoundingBox( primitiveBuffer[ i ], _cachedInverseMatrix, _box );
 		const { min, max } = _box;
+
+		// If the matrix was singular or the resulting bounds contain NaN/Infinity,
+		// write a degenerate (empty) box so the tree remains usable.
+		if (
+			_inverseMatrixSingular ||
+			! isFinite( min.x ) || ! isFinite( min.y ) || ! isFinite( min.z ) ||
+			! isFinite( max.x ) || ! isFinite( max.y ) || ! isFinite( max.z )
+		) {
+
+			targetBuffer[ writeOffset + 0 ] = 0;
+			targetBuffer[ writeOffset + 1 ] = 0;
+			targetBuffer[ writeOffset + 2 ] = 0;
+			targetBuffer[ writeOffset + 3 ] = 0;
+			targetBuffer[ writeOffset + 4 ] = 0;
+			targetBuffer[ writeOffset + 5 ] = 0;
+			return;
+
+		}
 
 		targetBuffer[ writeOffset + 0 ] = min.x;
 		targetBuffer[ writeOffset + 1 ] = min.y;
@@ -201,6 +243,13 @@ export class ObjectBVH extends BVH {
 
 				// skip non visible objects
 				if ( ! object.visible ) {
+
+					return;
+
+				}
+
+				// skip objects whose layers do not overlap with the raycaster's layers
+				if ( ! object.layers.test( raycaster.layers ) ) {
 
 					return;
 
@@ -654,5 +703,32 @@ function shrinkToSphere( box, sphere ) {
 
 	_vec.copy( sphere.center ).addScalar( sphere.radius );
 	box.max.min( _vec );
+
+}
+
+// Ensure every collected Object3D's geometry has a computed boundingBox and
+// boundingSphere. This is required in non-precise mode where _getPrimitiveBoundingBox
+// reads geometry.boundingBox directly.
+function ensureBoundingBoxes( objects ) {
+
+	for ( let i = 0, l = objects.length; i < l; i ++ ) {
+
+		const object = objects[ i ];
+		const geometry = object.geometry;
+		if ( ! geometry ) continue;
+
+		if ( ! geometry.boundingBox ) {
+
+			geometry.computeBoundingBox();
+
+		}
+
+		if ( ! geometry.boundingSphere ) {
+
+			geometry.computeBoundingSphere();
+
+		}
+
+	}
 
 }

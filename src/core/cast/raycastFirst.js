@@ -1,12 +1,11 @@
 import { COUNT, OFFSET, LEFT_NODE, RIGHT_NODE, IS_LEAF, SPLIT_AXIS } from '../utils/nodeBufferUtils.js';
 import { BufferStack } from '../utils/BufferStack.js';
 import { intersectsNodeBounds } from '../utils/intersectUtils.js';
-import { intersectClosestTri } from '../utils/iterationUtils.generated.js';
-import { intersectClosestTri_indirect } from '../utils/iterationUtils_indirect.generated.js';
+import { intersectClosestTri } from '../utils/iterationUtils.js';
 
 const _xyzFields = [ 'x', 'y', 'z' ];
 
-export function raycastFirst/* @echo INDIRECT_STRING */( bvh, root, materialOrSide, ray, near, far ) {
+export function raycastFirst( bvh, root, materialOrSide, ray, near, far ) {
 
 	BufferStack.setBuffer( bvh._roots[ root ] );
 	const result = _raycastFirst( 0, bvh, materialOrSide, ray, near, far );
@@ -27,16 +26,7 @@ function _raycastFirst( nodeIndex32, bvh, materialOrSide, ray, near, far ) {
 		const offset = OFFSET( nodeIndex32, uint32Array );
 		const count = COUNT( nodeIndex16, uint16Array );
 
-		/* @if INDIRECT */
-
-		return intersectClosestTri_indirect( bvh, materialOrSide, ray, offset, count, near, far );
-
-		/* @else */
-
-		// eslint-disable-next-line no-unreachable
 		return intersectClosestTri( bvh, materialOrSide, ray, offset, count, near, far );
-
-		/* @endif */
 
 	} else {
 

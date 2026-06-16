@@ -100,9 +100,23 @@ export class ObjectBVH extends BVH {
 
 	init( options ) {
 
-		const { objects, idBits } = this;
+		const { objects, idBits, matrixWorld } = this;
 		this.primitiveBuffer = new Uint32Array( this._countPrimitives( objects ) );
 		this._fillPrimitiveBuffer( objects, idBits, this.primitiveBuffer );
+
+		// precompute the inverse matrix once for the entire build; matrixWorld is
+		// assumed constant throughout the build process
+		const cachedInverse = new Matrix4();
+		cachedInverse.copy( matrixWorld ).invert();
+
+		// check for singular matrix (determinant near zero)
+		if ( Math.abs( matrixWorld.determinant() ) < 1e-10 ) {
+
+			console.warn( 'ObjectBVH: matrixWorld is singular (determinant ≈ 0). Bounds may be incorrect.' );
+
+		}
+
+		this._cachedInverseMatrix = cachedInverse;
 
 		super.init( options );
 
@@ -110,11 +124,9 @@ export class ObjectBVH extends BVH {
 
 	writePrimitiveBounds( i, targetBuffer, writeOffset ) {
 
-		// TODO: it would be best to cache this matrix inversion
-		const { primitiveBuffer } = this;
-		_inverseMatrix.copy( this.matrixWorld ).invert();
+		const { primitiveBuffer, _cachedInverseMatrix } = this;
 
-		this._getPrimitiveBoundingBox( primitiveBuffer[ i ], _inverseMatrix, _box );
+		this._getPrimitiveBoundingBox( primitiveBuffer[ i ], _cachedInverseMatrix, _box );
 		const { min, max } = _box;
 
 		targetBuffer[ writeOffset + 0 ] = min.x;

@@ -1,6 +1,4 @@
 /** @import { BufferGeometry } from 'three' */
-import { Box3, BufferAttribute } from 'three';
-import { MeshBVH } from '../core/MeshBVH.js';
 import { WorkerBase } from './utils/WorkerBase.js';
 import { convertToBufferType, isSharedArrayBufferSupported } from '../utils/BufferUtils.js';
 import { GenerateMeshBVHWorker } from './GenerateMeshBVHWorker.js';
@@ -30,106 +28,28 @@ class _ParallelMeshBVHWorker extends WorkerBase {
 
 	}
 
-	runTask( worker, geometry, options = {} ) {
+	postTaskMessage( worker, geometry, options = {} ) {
 
-		return new Promise( ( resolve, reject ) => {
+		if ( ! options.indirect ) {
 
-			if ( ! options.indirect ) {
+			ensureIndex( geometry, options );
 
-				ensureIndex( geometry, options );
+		}
 
-			}
+		const index = geometry.index ? geometry.index.array : null;
+		const position = geometry.attributes.position.array;
+		worker.postMessage( {
 
-			if (
-				geometry.getAttribute( 'position' ).isInterleavedBufferAttribute ||
-				geometry.index && geometry.index.isInterleavedBufferAttribute
-			) {
-
-				throw new Error( 'ParallelMeshBVHWorker: InterleavedBufferAttribute are not supported for the geometry attributes.' );
-
-			}
-
-			worker.onerror = e => {
-
-				reject( new Error( `ParallelMeshBVHWorker: ${ e.message }` ) );
-
-			};
-
-			worker.onmessage = e => {
-
-				const { data } = e;
-
-				if ( data.error ) {
-
-					reject( new Error( data.error ) );
-					worker.onmessage = null;
-
-				} else if ( data.serialized ) {
-
-					const { serialized, position } = data;
-					const bvh = MeshBVH.deserialize( serialized, geometry, { setIndex: false } );
-					const boundsOptions = {
-						setBoundingBox: true,
-						...options,
-					};
-
-					// we need to replace the arrays because they're neutered entirely by the
-					// webworker transfer.
-					geometry.attributes.position.array = position;
-					if ( serialized.index ) {
-
-						if ( geometry.index ) {
-
-							geometry.index.array = serialized.index;
-
-						} else {
-
-							const newIndex = new BufferAttribute( serialized.index, 1, false );
-							geometry.setIndex( newIndex );
-
-						}
-
-					}
-
-					if ( boundsOptions.setBoundingBox ) {
-
-						geometry.boundingBox = bvh.getBoundingBox( new Box3() );
-
-					}
-
-					if ( options.onProgress ) {
-
-						options.onProgress( data.progress );
-
-					}
-
-					resolve( bvh );
-					worker.onmessage = null;
-
-				} else if ( options.onProgress ) {
-
-					options.onProgress( data.progress );
-
-				}
-
-			};
-
-			const index = geometry.index ? geometry.index.array : null;
-			const position = geometry.attributes.position.array;
-			worker.postMessage( {
-
-				operation: 'BUILD_BVH',
-				maxWorkerCount: this.maxWorkerCount,
-				index: convertToBufferType( index, SharedArrayBuffer ),
-				position: convertToBufferType( position, SharedArrayBuffer ),
-				options: {
-					...options,
-					onProgress: null,
-					includedProgressCallback: Boolean( options.onProgress ),
-					groups: [ ...geometry.groups ],
-				},
-
-			} );
+			operation: 'BUILD_BVH',
+			maxWorkerCount: this.maxWorkerCount,
+			index: convertToBufferType( index, SharedArrayBuffer ),
+			position: convertToBufferType( position, SharedArrayBuffer ),
+			options: {
+				...options,
+				onProgress: null,
+				includedProgressCallback: Boolean( options.onProgress ),
+				groups: [ ...geometry.groups ],
+			},
 
 		} );
 

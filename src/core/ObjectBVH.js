@@ -2,7 +2,7 @@
 /** @import { IntersectsBoundsCallback, IntersectsRangeCallback, BoundsTraverseOrderCallback } from './BVH.js' */
 import { Box3, BufferGeometry, Matrix4, Mesh, Vector3, Ray, Sphere } from 'three';
 import { BVH } from './BVH.js';
-import { INTERSECTED, NOT_INTERSECTED } from './Constants.js';
+import { SKIP_GENERATION, INTERSECTED, NOT_INTERSECTED } from './Constants.js';
 
 const _geometry = /* @__PURE__ */ new BufferGeometry();
 const _matrix = /* @__PURE__ */ new Matrix4();
@@ -36,6 +36,168 @@ const _geometryRange = {};
  */
 export class ObjectBVH extends BVH {
 
+	/**
+	 * Generates a representation of the complete ObjectBVH tree that can be transferred
+	 * across WebWorker boundaries or stored. The `objects` array is serialized as an array
+	 * of UUIDs which can be resolved back to Object3D references using `ObjectBVH.deserialize`.
+	 *
+	 * @static
+	 * @param {ObjectBVH} bvh - The BVH to serialize.
+	 * @param {Object} [options]
+	 * @param {boolean} [options.cloneBuffers=true] - If `true`, the root and primitive buffers
+	 *   are cloned so the serialized data is independent of the live BVH.
+	 * @returns {Object}
+	 */
+	static serialize( bvh, options = {} ) {
+
+		options = {
+			cloneBuffers: true,
+			...options,
+		};
+
+		const rootData = bvh._roots;
+		const primitiveBuffer = bvh.primitiveBuffer;
+
+		// serialize object references as UUIDs; the caller can provide a custom
+		// serialization of object identity by overriding `resolveObjectId`
+		const objectIds = bvh.objects.map( object => object.uuid );
+
+		const result = {
+			version: 1,
+			roots: null,
+			primitiveBuffer: null,
+			objectIds,
+			idBits: bvh.idBits,
+			idMask: bvh.idMask,
+			precise: bvh.precise,
+			includeInstances: bvh.includeInstances,
+		};
+
+		if ( options.cloneBuffers ) {
+
+			result.roots = rootData.map( root => root.slice() );
+			result.primitiveBuffer = primitiveBuffer ? primitiveBuffer.slice() : null;
+
+		} else {
+
+			result.roots = rootData;
+			result.primitiveBuffer = primitiveBuffer;
+
+		}
+
+		return result;
+
+	}
+
+	/**
+	 * Returns a new ObjectBVH instance from the serialized data. `objects` must be an array of
+	 * Object3D references in the same order as the original, or a resolver function mapping
+	 * UUIDs to Object3D instances.
+	 *
+	 * @static
+	 * @param {Object} data - Serialized BVH data from `ObjectBVH.serialize`.
+	 * @param {Array<Object3D>|function(string): Object3D} objectResolver - An array of
+	 *   Object3D instances (in the same order as `data.objectIds`) or a function that
+	 *   receives a UUID and returns the corresponding Object3D.
+	 * @param {Object} [options]
+	 * @param {Matrix4} [options.matrixWorld] - The matrixWorld to set on the BVH.
+	 * @returns {ObjectBVH}
+	 */
+	static deserialize( data, objectResolver, options = {} ) {
+
+		const {
+			roots,
+			primitiveBuffer,
+			objectIds,
+			idBits: serializedIdBits,
+			idMask: serializedIdMask,
+			precise,
+			includeInstances,
+		} = data;
+
+		// resolve the objects array
+		let objects;
+		if ( typeof objectResolver === 'function' ) {
+
+			objects = objectIds.map( uuid => {
+
+				const obj = objectResolver( uuid );
+				if ( ! obj ) {
+
+					throw new Error( `ObjectBVH.deserialize: Could not resolve object with UUID "${ uuid }".` );
+
+				}
+
+				return obj;
+
+			} );
+
+		} else if ( Array.isArray( objectResolver ) ) {
+
+			if ( objectResolver.length !== objectIds.length ) {
+
+				throw new Error(
+					`ObjectBVH.deserialize: Expected ${ objectIds.length } objects but received ${ objectResolver.length }.`
+				);
+
+			}
+
+			objects = objectResolver;
+
+		} else {
+
+			throw new Error( 'ObjectBVH.deserialize: objectResolver must be an array or function.' );
+
+		}
+
+		// recalculate idBits/idMask from the object count
+		const idBits = Math.ceil( Math.log2( objects.length ) );
+		const idMask = constructIdMask( idBits );
+
+		// validate consistency if the serialized data had these fields
+		if ( serializedIdBits !== undefined && serializedIdBits !== idBits ) {
+
+			console.warn(
+				`ObjectBVH.deserialize: idBits mismatch. Serialized: ${ serializedIdBits }, ` +
+				`computed: ${ idBits }. Using computed value.`
+			);
+
+		}
+
+		if ( serializedIdMask !== undefined && serializedIdMask !== idMask ) {
+
+			console.warn(
+				`ObjectBVH.deserialize: idMask mismatch. Serialized: ${ serializedIdMask }, ` +
+				`computed: ${ idMask }. Using computed value.`
+			);
+
+		}
+
+		// create a dummy root to bypass generation
+		options = {
+			precise,
+			includeInstances,
+			matrixWorld: options.matrixWorld || new Matrix4(),
+			maxLeafSize: 1,
+			...options,
+			[ SKIP_GENERATION ]: true,
+		};
+
+		// Pass an empty array so the constructor doesn't try to collect objects from a root
+		const bvh = new ObjectBVH( [], options );
+
+		// override the collected objects with the resolved ones
+		bvh.objects = objects;
+		bvh.idBits = idBits;
+		bvh.idMask = idMask;
+		bvh.primitiveBuffer = primitiveBuffer || null;
+		bvh.primitiveBufferStride = 1;
+		bvh._roots = roots;
+
+		return bvh;
+
+	}
+
 	constructor( root, options = {} ) {
 
 		options = {
@@ -47,6 +209,23 @@ export class ObjectBVH extends BVH {
 		};
 
 		super();
+
+		// skip generation when deserializing
+		if ( options[ SKIP_GENERATION ] ) {
+
+			this.objects = [];
+			this.idBits = 0;
+			this.idMask = 0;
+			this.primitiveBuffer = null;
+			this.primitiveBufferStride = 1;
+
+			this.precise = options.precise;
+			this.includeInstances = options.includeInstances;
+			this.matrixWorld = options.matrixWorld;
+
+			return;
+
+		}
 
 		// collect all the leaf node objects in the geometries
 		const objectSet = new Set();

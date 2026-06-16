@@ -1,5 +1,5 @@
 /** @import { BufferGeometry } from 'three' */
-import { Box3 } from 'three';
+import { Box3, BufferAttribute } from 'three';
 import { SKIP_GENERATION, DEFAULT_OPTIONS } from './Constants.js';
 import { isSharedArrayBufferSupported } from '../utils/BufferUtils.js';
 import { ensureIndex, getRootPrimitiveRanges } from './build/geometryUtils.js';
@@ -56,6 +56,108 @@ export function generateIndirectBuffer( ranges, useSharedArrayBuffer ) {
  * @extends BVH
  */
 export class GeometryBVH extends BVH {
+
+	/**
+	 * Generates a representation of the complete bounds tree and the geometry index buffer which
+	 * can be used to recreate a bounds tree using the `deserialize` function. The BVH roots buffer
+	 * stored in the serialized representation are the same as the ones used by the original BVH so
+	 * they should not be modified.
+	 *
+	 * @static
+	 * @param {GeometryBVH} bvh - The BVH to serialize.
+	 * @param {Object} [options]
+	 * @param {boolean} [options.cloneBuffers=true] - If `true`, the index and BVH root buffers
+	 *   are cloned so the serialized data is independent of the live BVH.
+	 * @returns {Object}
+	 */
+	static serialize( bvh, options = {} ) {
+
+		options = {
+			cloneBuffers: true,
+			...options,
+		};
+
+		const geometry = bvh.geometry;
+		const rootData = bvh._roots;
+		const indirectBuffer = bvh._indirectBuffer;
+		const indexAttribute = geometry.getIndex();
+		const result = {
+			version: 1,
+			roots: null,
+			index: null,
+			indirectBuffer: null,
+		};
+		if ( options.cloneBuffers ) {
+
+			result.roots = rootData.map( root => root.slice() );
+			result.index = indexAttribute ? indexAttribute.array.slice() : null;
+			result.indirectBuffer = indirectBuffer ? indirectBuffer.slice() : null;
+
+		} else {
+
+			result.roots = rootData;
+			result.index = indexAttribute ? indexAttribute.array : null;
+			result.indirectBuffer = indirectBuffer;
+
+		}
+
+		return result;
+
+	}
+
+	/**
+	 * Returns a new BVH instance from the serialized data. `geometry` is the geometry used
+	 * to generate the original BVH `data` was derived from. The root buffers stored in `data`
+	 * are set directly on the new BVH so the memory is shared.
+	 *
+	 * @static
+	 * @param {Object} data - Serialized BVH data.
+	 * @param {BufferGeometry} geometry - The geometry the BVH was originally built from.
+	 * @param {Object} [options]
+	 * @param {boolean} [options.setIndex=true] - If `true`, sets `geometry.index` from the
+	 *   serialized index buffer (creating one if none exists).
+	 * @returns {GeometryBVH}
+	 */
+	static deserialize( data, geometry, options = {} ) {
+
+		options = {
+			setIndex: true,
+			indirect: Boolean( data.indirectBuffer ),
+			...options,
+		};
+
+		const { index, roots, indirectBuffer } = data;
+
+		// use `this` to support subclass instantiation (PointsBVH, LineSegmentsBVH, etc.)
+		const bvh = new this( geometry, { ...options, [ SKIP_GENERATION ]: true } );
+		bvh._roots = roots;
+		bvh._indirectBuffer = indirectBuffer || null;
+
+		if ( options.setIndex ) {
+
+			const indexAttribute = geometry.getIndex();
+			if ( indexAttribute === null ) {
+
+				// only set an index if serialized data has one (indirect BVHs may not)
+				if ( data.index ) {
+
+					const newIndex = new BufferAttribute( data.index, 1, false );
+					geometry.setIndex( newIndex );
+
+				}
+
+			} else if ( data.index && indexAttribute.array !== data.index ) {
+
+				indexAttribute.array.set( data.index );
+				indexAttribute.needsUpdate = true;
+
+			}
+
+		}
+
+		return bvh;
+
+	}
 
 	/**
 	 * Whether the BVH was built in indirect mode.

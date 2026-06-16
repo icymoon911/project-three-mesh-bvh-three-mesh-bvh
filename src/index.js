@@ -15,6 +15,7 @@ export * from './math/OrientedBox.js';
 export * from './webgl/MeshBVHUniformStruct.js';
 export * from './webgl/VertexAttributeTexture.js';
 export * from './utils/StaticGeometryGenerator.js';
+export * from './utils/ObjectBVHWorkerUtils.js';
 export * as BVHShaderGLSL from './webgl/BVHShaderGLSL.js';
 
 // backwards compatibility

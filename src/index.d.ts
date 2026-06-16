@@ -124,6 +124,14 @@ export class GeometryBVH extends BVH {
 	readonly indirect: boolean;
 	readonly geometry: BufferGeometry;
 
+	static serialize( bvh: GeometryBVH, options?: MeshBVHSerializeOptions ): SerializedBVH;
+
+	static deserialize(
+		data: SerializedBVH,
+		geometry: BufferGeometry,
+		options?: MeshBVHDeserializeOptions
+	): GeometryBVH;
+
 	constructor( geometry: BufferGeometry, options?: BVHOptions );
 	raycastObject3D( object: Object3D, raycaster: Raycaster, intersects: Array<Intersection> ): void;
 
@@ -252,7 +260,34 @@ export class LineSegmentsBVH extends GeometryBVH {
 export class LineLoopBVH extends LineSegmentsBVH {}
 export class LineBVH extends LineLoopBVH {}
 
+export interface SerializedObjectBVH {
+
+	version: number;
+	roots: Array<ArrayBuffer>;
+	primitiveBuffer: Uint32Array | null;
+	objectIds: Array<string>;
+	idBits: number;
+	idMask: number;
+	precise: boolean;
+	includeInstances: boolean;
+
+}
+
+export interface ObjectBVHDeserializeOptions {
+
+	matrixWorld?: Matrix4;
+
+}
+
 export class ObjectBVH extends BVH {
+
+	static serialize( bvh: ObjectBVH, options?: MeshBVHSerializeOptions ): SerializedObjectBVH;
+
+	static deserialize(
+		data: SerializedObjectBVH,
+		objectResolver: Array<Object3D> | ( ( uuid: string ) => Object3D ),
+		options?: ObjectBVHDeserializeOptions
+	): ObjectBVH;
 
 	constructor( root: Array<Object3D> | Object3D, options?: BVHOptions );
 	getObjectFromId( compositeId: number ): Object3D;
@@ -274,6 +309,7 @@ export class ObjectBVH extends BVH {
 // SerializedBVH
 export class SerializedBVH {
 
+	version?: number;
 	roots: Array<ArrayBuffer>;
 	index: Int32Array | Uint32Array | Uint16Array | null;
 	indirectBuffer: Uint32Array | Uint16Array | null;
@@ -458,3 +494,28 @@ export class StaticGeometryGenerator {
 	generate( target? : BufferGeometry ) : BufferGeometry;
 
 }
+
+// ObjectBVH Worker Utilities
+export interface ObjectEntry {
+
+	uuid: string;
+	isMesh?: boolean;
+	isLine?: boolean;
+	isPoints?: boolean;
+	isInstancedMesh?: boolean;
+	isBatchedMesh?: boolean;
+	visible: boolean;
+	matrixWorld: Array<number>;
+	count?: number;
+	instanceCount?: number;
+	maxInstanceCount?: number;
+	boundingBox?: { min: Array<number>; max: Array<number> };
+	boundingSphere?: { center: Array<number>; radius: number };
+	geometryBoundingBox?: { min: Array<number>; max: Array<number> };
+	geometryBoundingSphere?: { center: Array<number>; radius: number };
+
+}
+
+export function describeObject( object: Object3D ): ObjectEntry;
+export function buildObjectBVHFromEntries( objectEntries: Array<ObjectEntry>, options?: BVHOptions ): SerializedObjectBVH;
+export function getObjectBVHTransferables( serialized: SerializedObjectBVH ): Array<ArrayBuffer>;

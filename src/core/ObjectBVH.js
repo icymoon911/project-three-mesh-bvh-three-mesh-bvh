@@ -2,7 +2,7 @@
 /** @import { IntersectsBoundsCallback, IntersectsRangeCallback, BoundsTraverseOrderCallback } from './BVH.js' */
 import { Box3, BufferGeometry, Matrix4, Mesh, Vector3, Ray, Sphere } from 'three';
 import { BVH } from './BVH.js';
-import { INTERSECTED, NOT_INTERSECTED } from './Constants.js';
+import { INTERSECTED, NOT_INTERSECTED, SKIP_GENERATION } from './Constants.js';
 
 const _geometry = /* @__PURE__ */ new BufferGeometry();
 const _matrix = /* @__PURE__ */ new Matrix4();
@@ -36,17 +36,132 @@ const _geometryRange = {};
  */
 export class ObjectBVH extends BVH {
 
+	/**
+	 * Serializes an ObjectBVH into a plain-object representation. The `objects` array is not
+	 * included (Object3D references cannot cross Worker boundaries); instead the serialized
+	 * data stores `objectCount` so the caller can validate that the same objects array is
+	 * provided at deserialization time.
+	 *
+	 * @static
+	 * @param {ObjectBVH} bvh - The BVH to serialize.
+	 * @param {Object} [options]
+	 * @param {boolean} [options.cloneBuffers=true] - If `true`, the root and primitive buffers
+	 *   are cloned so the serialized data is independent of the live BVH.
+	 * @returns {Object} Serialized BVH data with `version`, `roots`, `primitiveBuffer`,
+	 *   `objectCount`, `precise`, and `includeInstances` fields.
+	 */
+	static serialize( bvh, options = {} ) {
+
+		options = {
+			cloneBuffers: true,
+			...options,
+		};
+
+		const rootData = bvh._roots;
+		const primitiveBuffer = bvh.primitiveBuffer;
+		const result = {
+			version: 1,
+			roots: null,
+			primitiveBuffer: null,
+			objectCount: bvh.objects.length,
+			precise: bvh.precise,
+			includeInstances: bvh.includeInstances,
+		};
+
+		if ( options.cloneBuffers ) {
+
+			result.roots = rootData.map( root => root.slice() );
+			result.primitiveBuffer = primitiveBuffer ? primitiveBuffer.slice() : null;
+
+		} else {
+
+			result.roots = rootData;
+			result.primitiveBuffer = primitiveBuffer;
+
+		}
+
+		return result;
+
+	}
+
+	/**
+	 * Returns a new ObjectBVH from serialized data. An `objects` array must be provided that
+	 * matches the original objects used to build the BVH — the order must be identical since
+	 * the primitive buffer encodes object indices by position.
+	 *
+	 * @static
+	 * @param {Object} data - Serialized BVH data from `ObjectBVH.serialize`.
+	 * @param {Array<Object3D>} objects - The array of objects that were used to build the
+	 *   original BVH, in the same order.
+	 * @param {Object} [options]
+	 * @param {Matrix4} [options.matrixWorld] - The matrixWorld to use for the BVH. Defaults
+	 *   to a new identity Matrix4.
+	 * @returns {ObjectBVH}
+	 */
+	static deserialize( data, objects, options = {} ) {
+
+		if ( data.objectCount !== undefined && data.objectCount !== objects.length ) {
+
+			throw new Error(
+				`ObjectBVH.deserialize: Expected ${ data.objectCount } objects but received ${ objects.length }. ` +
+				'The objects array must match the one used to build the original BVH.'
+			);
+
+		}
+
+		const matrixWorld = options.matrixWorld || new Matrix4();
+		const bvh = new ObjectBVH( null, {
+			matrixWorld,
+			[ SKIP_GENERATION ]: true,
+		} );
+
+		bvh._roots = data.roots;
+		bvh.objects = objects;
+		bvh.precise = data.precise !== undefined ? data.precise : false;
+		bvh.includeInstances = data.includeInstances !== undefined ? data.includeInstances : true;
+		bvh.matrixWorld = matrixWorld;
+
+		// recompute idBits/idMask from the objects count
+		const idBits = Math.ceil( Math.log2( objects.length ) );
+		const idMask = constructIdMask( idBits );
+		bvh.idBits = idBits;
+		bvh.idMask = idMask;
+
+		bvh.primitiveBuffer = data.primitiveBuffer;
+		bvh.primitiveBufferStride = 1;
+
+		return bvh;
+
+	}
+
 	constructor( root, options = {} ) {
+
+		const skipGeneration = options[ SKIP_GENERATION ];
 
 		options = {
 			precise: false,
 			includeInstances: true,
-			matrixWorld: Array.isArray( root ) ? new Matrix4() : root.matrixWorld,
+			matrixWorld: skipGeneration ? new Matrix4() : ( Array.isArray( root ) ? new Matrix4() : root.matrixWorld ),
 			maxLeafSize: 1,
 			...options,
 		};
 
 		super();
+
+		if ( skipGeneration ) {
+
+			// deferred initialization — fields will be set by deserialize
+			this.objects = null;
+			this.idBits = 0;
+			this.idMask = 0;
+			this.primitiveBuffer = null;
+			this.primitiveBufferStride = 1;
+			this.precise = options.precise;
+			this.includeInstances = options.includeInstances;
+			this.matrixWorld = options.matrixWorld;
+			return;
+
+		}
 
 		// collect all the leaf node objects in the geometries
 		const objectSet = new Set();

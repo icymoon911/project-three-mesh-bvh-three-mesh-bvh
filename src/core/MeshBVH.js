@@ -1,8 +1,8 @@
 /** @import { BufferGeometry, Sphere, Box3, Intersection, Material, Object3D, Raycaster } from 'three' */
 /** @import { ExtendedTriangle } from '../math/ExtendedTriangle.js' */
 /** @import { IntersectsBoundsCallback, IntersectsRangeCallback, BoundsTraverseOrderCallback, IntersectsRangesCallback } from './BVH.js' */
-import { BufferAttribute, FrontSide, Ray, Vector3, Matrix4 } from 'three';
-import { SKIP_GENERATION, BYTES_PER_NODE, UINT32_PER_NODE, FLOAT32_EPSILON } from './Constants.js';
+import { FrontSide, Ray, Vector3, Matrix4 } from 'three';
+import { BYTES_PER_NODE, UINT32_PER_NODE, FLOAT32_EPSILON } from './Constants.js';
 import { OrientedBox } from '../math/OrientedBox.js';
 import { ExtendedTrianglePool } from '../utils/ExtendedTrianglePool.js';
 import { closestPointToPoint } from './cast/closestPointToPoint.js';
@@ -111,36 +111,7 @@ export class MeshBVH extends GeometryBVH {
 	 */
 	static serialize( bvh, options = {} ) {
 
-		options = {
-			cloneBuffers: true,
-			...options,
-		};
-
-		const geometry = bvh.geometry;
-		const rootData = bvh._roots;
-		const indirectBuffer = bvh._indirectBuffer;
-		const indexAttribute = geometry.getIndex();
-		const result = {
-			version: 1,
-			roots: null,
-			index: null,
-			indirectBuffer: null,
-		};
-		if ( options.cloneBuffers ) {
-
-			result.roots = rootData.map( root => root.slice() );
-			result.index = indexAttribute ? indexAttribute.array.slice() : null;
-			result.indirectBuffer = indirectBuffer ? indirectBuffer.slice() : null;
-
-		} else {
-
-			result.roots = rootData;
-			result.index = indexAttribute ? indexAttribute.array : null;
-			result.indirectBuffer = indirectBuffer;
-
-		}
-
-		return result;
+		return GeometryBVH.serialize.call( this, bvh, options );
 
 	}
 
@@ -165,7 +136,7 @@ export class MeshBVH extends GeometryBVH {
 			...options,
 		};
 
-		const { index, roots, indirectBuffer } = data;
+		const { roots } = data;
 
 		// handle backwards compatibility by fixing up the buffer roots
 		// see issue gkjohnson/three-mesh-bvh#759
@@ -179,30 +150,9 @@ export class MeshBVH extends GeometryBVH {
 
 		}
 
-		const bvh = new MeshBVH( geometry, { ...options, [ SKIP_GENERATION ]: true } );
-		bvh._roots = roots;
-		bvh._indirectBuffer = indirectBuffer || null;
-
-		if ( options.setIndex ) {
-
-			const indexAttribute = geometry.getIndex();
-			if ( indexAttribute === null ) {
-
-				const newIndex = new BufferAttribute( data.index, 1, false );
-				geometry.setIndex( newIndex );
-
-			} else if ( indexAttribute.array !== index ) {
-
-				indexAttribute.array.set( index );
-				indexAttribute.needsUpdate = true;
-
-			}
-
-		}
-
+		const bvh = GeometryBVH.deserialize.call( this, data, geometry, options );
 		return bvh;
 
-		// convert version 0 serialized data (uint32 indices) to version 1 (node indices)
 		function fixupVersion0( roots ) {
 
 			for ( let rootIndex = 0; rootIndex < roots.length; rootIndex ++ ) {
